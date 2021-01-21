@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "query-osm": {
+      "commandName": "Project",
+      "remoteDebugEnabled": false
+    }
+  }
+}
