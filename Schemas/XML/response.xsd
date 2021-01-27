@@ -1,0 +1,87 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="osm">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:sequence minOccurs="0">
+          <xs:element name="note" type="xs:string" maxOccurs="unbounded" />
+        </xs:sequence>
+        <xs:element name="meta">
+          <xs:complexType>
+            <xs:attribute name="osm_base" type="xs:dateTime" use="required" />
+          </xs:complexType>
+        </xs:element>
+        <xs:element maxOccurs="unbounded" name="node">
+          <xs:complexType>
+            <xs:sequence minOccurs="0">
+              <xs:element maxOccurs="unbounded" name="tag">
+                <xs:complexType>
+                  <xs:attribute name="k" type="xs:string" use="required" />
+                  <xs:attribute name="v" type="xs:string" use="required" />
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+            <xs:attribute name="id" type="xs:unsignedLong" use="required" />
+            <xs:attribute name="lat" type="xs:decimal" use="required" />
+            <xs:attribute name="lon" type="xs:decimal" use="required" />
+            <xs:attribute name="version" type="xs:unsignedByte" use="required"/>
+            <xs:attribute name="timestamp" type="xs:dateTime" use="required"/>
+            <xs:attribute name="changeset" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="uid" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="user" type="xs:string" use="required"/>
+          </xs:complexType>
+        </xs:element>
+        <xs:element maxOccurs="unbounded" name="way">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element maxOccurs="unbounded" name="nd">
+                <xs:complexType>
+                  <xs:attribute name="ref" type="xs:unsignedLong" use="required" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element maxOccurs="unbounded" name="tag">
+                <xs:complexType>
+                  <xs:attribute name="k" type="xs:string" use="required" />
+                  <xs:attribute name="v" type="xs:string" use="required" />
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+            <xs:attribute name="id" type="xs:unsignedInt" use="required" />
+            <xs:attribute name="version" type="xs:unsignedByte" use="required"/>
+            <xs:attribute name="timestamp" type="xs:dateTime" use="required"/>
+            <xs:attribute name="changeset" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="uid" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="user" type="xs:string" use="required"/>
+          </xs:complexType>
+        </xs:element>
+        <xs:element maxOccurs="unbounded" name="relation">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element maxOccurs="unbounded" name="member">
+                <xs:complexType>
+                  <xs:attribute name="type" type="xs:string" use="required" />
+                  <xs:attribute name="ref" type="xs:unsignedLong" use="required" />
+                  <xs:attribute name="role" type="xs:string" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element maxOccurs="unbounded" name="tag">
+                <xs:complexType>
+                  <xs:attribute name="k" type="xs:string" use="required" />
+                  <xs:attribute name="v" type="xs:string" use="required" />
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+            <xs:attribute name="id" type="xs:unsignedInt" use="required" />
+            <xs:attribute name="version" type="xs:unsignedByte" use="required"/>
+            <xs:attribute name="timestamp" type="xs:dateTime" use="required"/>
+            <xs:attribute name="changeset" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="uid" type="xs:unsignedInt" use="required"/>
+            <xs:attribute name="user" type="xs:string" use="required"/>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="version" type="xs:decimal" use="required" />
+      <xs:attribute name="generator" type="xs:string" use="required" />
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

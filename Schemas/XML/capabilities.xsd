@@ -1,0 +1,80 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="osm">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="api">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="version">
+                <xs:complexType>
+                  <xs:attribute name="minimum" type="xs:decimal" use="required" />
+                  <xs:attribute name="maximum" type="xs:decimal" use="required" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="area">
+                <xs:complexType>
+                  <xs:attribute name="maximum" type="xs:decimal" use="required" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="note_area">
+                <xs:complexType>
+                  <xs:attribute name="maximum" type="xs:unsignedByte" use="required" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="tracepoints">
+                <xs:complexType>
+                  <xs:attribute name="per_page" type="xs:unsignedShort" use="required" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="waynodes">
+                <xs:complexType>
+                  <xs:attribute name="maximum" type="xs:unsignedShort" use="required" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="changesets">
+                <xs:complexType>
+                  <xs:attribute name="maximum_elements" type="xs:unsignedShort" use="required" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="timeout">
+                <xs:complexType>
+                  <xs:attribute name="seconds" type="xs:unsignedShort" use="required" />
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="status">
+                <xs:complexType>
+                  <xs:attribute name="database" type="xs:string" use="required" />
+                  <xs:attribute name="api" type="xs:string" use="required" />
+                  <xs:attribute name="gpx" type="xs:string" use="required" />
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="policy">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="imagery">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element maxOccurs="unbounded" name="blacklist">
+                      <xs:complexType>
+                        <xs:attribute name="regex" type="xs:string" use="required" />
+                      </xs:complexType>
+                    </xs:element>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="version" type="xs:decimal" use="required" />
+      <xs:attribute name="generator" type="xs:string" use="required" />
+      <xs:attribute name="copyright" type="xs:string" use="required" />
+      <xs:attribute name="attribution" type="xs:string" use="required" />
+      <xs:attribute name="license" type="xs:string" use="required" />
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
