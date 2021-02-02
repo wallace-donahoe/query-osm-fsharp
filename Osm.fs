@@ -27,32 +27,56 @@ type Info = {
     Timestamp: DateTimeOffset
 }
 
-type Node = {
-    Info: Info
-    Geometry: Point
-    Tags: IDictionary<string, string>
-}
+[<Interface>]
+type IGeographic =
+    abstract member Geometry : Geometry with get
 
-type Way = {
-    Info: Info
-    Geometry: option<LineString>
-    Tags: IDictionary<string, string>
-}
+type Node =
+    { Info: Info
+      Point: Point
+      Tags: IDictionary<string, string>
+    } with
+        member this.Geometry = (this :> IGeographic).Geometry
+        interface IGeographic with
+            member this.Geometry
+                with get () = this.Point :> Geometry
 
-type Area = {
-    Info: Info
-    Geometry: option<Polygon>
-    Tags: IDictionary<string, string>
-}
+type Way =
+    { Info: Info
+      LineString: option<LineString>
+      Tags: IDictionary<string, string>
+    } with
+        member this.Geometry = (this :> IGeographic).Geometry
+        interface IGeographic with
+            member this.Geometry
+                with get () =
+                    match this.LineString with
+                        | Some lineString -> lineString :> Geometry
+                        | None            -> null
+
+type Area =
+    { Info: Info
+      Polygon: option<Polygon>
+      Tags: IDictionary<string, string>
+    } with
+        member this.Geometry = (this :> IGeographic).Geometry
+        interface IGeographic with
+            member this.Geometry
+                with get () =
+                    match this.Polygon with
+                        | Some polygon -> polygon :> Geometry
+                        | None         -> null
 
 type Relation = {
     Info: Info
+    Tags: IDictionary<string, string>
 }
 
 type Response = {
     Nodes: seq<Node>
     Ways: seq<Way>
     Areas: seq<Area>
+    Relations: seq<Relation>
     Notes: string[]
 }
 
@@ -79,7 +103,6 @@ module private Helpers =
                 |> Seq.toArray
                 |> geometryFactory.CreateLineString 
 
-
 module private Xml =
     module Capabilities =
         type XmlCapabilities = XmlProvider< Schema = const(__SOURCE_DIRECTORY__ + "/Schemas/XML/capabilities.xsd") >
@@ -93,25 +116,25 @@ module private Xml =
 
         let getNodeInfo (node:XmlResponse.Node) =
             { Id        = Convert.ToInt64(node.Id)
-              Timestamp = node.Timestamp
-              User      = node.User
+              Timestamp = node   .Timestamp
+              User      = node   .User
               Version   = Convert.ToByte(node.Version)
               Changeset = Convert.ToUInt32(node.Changeset)
               Uid       = Convert.ToUInt32(node.Uid) }
         let getWayInfo (way:XmlResponse.Way) =
             { Id        = Convert.ToInt64(way.Id)
-              Timestamp = way.Timestamp
-              User      = way.User
+              Timestamp = way    .Timestamp
+              User      = way    .User
               Version   = Convert.ToByte(way.Version)
               Changeset = Convert.ToUInt32(way.Changeset)
               Uid       = Convert.ToUInt32(way.Uid) }
-        let geRelationtInfo (relation:XmlResponse.Relation) =
-            { Id        = Convert.ToInt64(relation.Id)
+        let getRelationInfo (relation:XmlResponse.Relation) =
+            { Id        = Convert .ToInt64(relation.Id)
               Timestamp = relation.Timestamp
               User      = relation.User
-              Version   = Convert.ToByte(relation.Version)
-              Changeset = Convert.ToUInt32(relation.Changeset)
-              Uid       = Convert.ToUInt32(relation.Uid) }
+              Version   = Convert .ToByte(relation.Version)
+              Changeset = Convert .ToUInt32(relation.Changeset)
+              Uid       = Convert .ToUInt32(relation.Uid) }
 
         let getTags (tags:XmlResponse.Tag[]) =
             tags
@@ -119,26 +142,26 @@ module private Xml =
                 |> dict
 
         let getNode (node:XmlResponse.Node) =
-            { Info          = getNodeInfo node
-              Tags          = getTags node.Tags
-              Node.Geometry = Helpers.Geometry.createPoint node.Lon node.Lat }
+            { Info       = getNodeInfo node
+              Tags       = getTags node.Tags
+              Node.Point = Helpers.Geometry.createPoint node.Lon node.Lat }
 
         let isTagged (node:Node) = node.Tags |> Seq.isEmpty |> not
 
         let getWay (way:XmlResponse.Way) (nodes:IDictionary<int64, Node>) =
             { Info          = getWayInfo way
               Tags          = getTags way.Tags
-              Way.Geometry  =
+              Way.LineString  =
                 try
                     way.Nds
-                        |> Seq.map(fun nd -> nodes.[Convert.ToInt64 nd.Ref].Geometry)
+                        |> Seq.map(fun nd -> nodes.[Convert.ToInt64 nd.Ref].Point)
                         |> Helpers.Geometry.createLineString
                         |> Some
                 with
                     | :? KeyNotFoundException -> None }
 
         let isOpen (way:Way) =
-            match way.Geometry with
+            match way.LineString with
                 | Some lineString -> not lineString.IsClosed
                 | None            -> true
 
@@ -152,25 +175,31 @@ module private Xml =
         let createAreaFromWay (way:Way) =
             { Info          = way.Info;
               Tags          = new Dictionary<string, string>(way.Tags);
-              Area.Geometry =
-                match way.Geometry with
+              Area.Polygon =
+                match way.LineString with
                     | Some lineString -> if (isClosed way) then lineString.Coordinates |> Helpers.Geometry.geometryFactory.CreatePolygon |> Some else None
                     | None            -> None }
 
+        let getRelation (relation:XmlResponse.Relation) =
+            { Info = getRelationInfo relation
+              Tags = getTags relation.Tags }
+
         let fromXml str =
             let xml = XmlResponse.Parse str
-            let nodes = xml.Nodes |> Seq.map(getNode)
+            let nodes = xml.Nodes |> Seq.map getNode
             let nodesDict = nodes |> Seq.map(fun node -> node.Info.Id, node) |> dict
             let ways = xml.Ways
                      |> Seq.map(fun way -> getWay way nodesDict)
             { Notes = xml.Notes
               Nodes = nodes
-                    |> Seq.filter(isTagged)
+                    |> Seq.filter isTagged
               Ways  = ways
-                    |> Seq.filter(isOpen)
+                    |> Seq.filter isOpen
               Areas = ways
-                    |> Seq.filter(isArea)
-                    |> Seq.map(createAreaFromWay) }
+                    |> Seq.filter isArea
+                    |> Seq.map(createAreaFromWay)
+              Relations = xml.Relations
+                        |> Seq.map getRelation }
 
 let AsyncGetCapabilities = Helpers.Async.mapAsync
                                Xml.Capabilities.fromXml
