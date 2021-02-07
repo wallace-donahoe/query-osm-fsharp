@@ -27,49 +27,64 @@ type Info = {
     Timestamp: DateTimeOffset
 }
 
+type IEntity =
+    abstract member Id: int64 with get
+
 [<Interface>]
 type IGeographic =
-    abstract member Geometry : Geometry with get
+    abstract member Geometry : option<Geometry> with get
 
 type Node =
     { Info: Info
       Point: Point
       Tags: IDictionary<string, string>
-    } with
-        member this.Geometry = (this :> IGeographic).Geometry
-        interface IGeographic with
-            member this.Geometry
-                with get () = this.Point :> Geometry
+    }
 
 type Way =
     { Info: Info
       LineString: option<LineString>
       Tags: IDictionary<string, string>
-    } with
-        member this.Geometry = (this :> IGeographic).Geometry
-        interface IGeographic with
-            member this.Geometry
-                with get () =
-                    match this.LineString with
-                        | Some lineString -> lineString :> Geometry
-                        | None            -> null
+    }
 
 type Area =
     { Info: Info
       Polygon: option<Polygon>
       Tags: IDictionary<string, string>
-    } with
-        member this.Geometry = (this :> IGeographic).Geometry
-        interface IGeographic with
-            member this.Geometry
-                with get () =
-                    match this.Polygon with
-                        | Some polygon -> polygon :> Geometry
-                        | None         -> null
+    }
+
+
+type Entity =
+            | Node of Node
+            | Way of Way
+            | Area of Area
+            with
+                member this.Geometry = (this :> IGeographic).Geometry
+                member this.Id = (this :> IEntity).Id
+                interface IGeographic with
+                    member this.Geometry
+                        with get () =
+                            match this with
+                                | Node node -> node.Point :> Geometry |> Some
+                                | Way  way  -> Option.map (fun lineString -> lineString :> Geometry) way.LineString
+                                | Area area -> Option.map (fun polygon    -> polygon :> Geometry) area.Polygon
+                interface IEntity with
+                    member this.Id
+                        with get() =
+                            match this with
+                                | Node node -> node.Info.Id
+                                | Way way -> way.Info.Id
+                                | Area area -> area.Info.Id
+
+type RelationMember = {
+    Role: option<string>
+    Member: Entity
+}
 
 type Relation = {
     Info: Info
     Tags: IDictionary<string, string>
+    Members: seq<RelationMember>
+    Relations: seq<Relation>
 }
 
 type Response = {
@@ -177,19 +192,49 @@ module private Xml =
               Tags          = new Dictionary<string, string>(way.Tags);
               Area.Polygon =
                 match way.LineString with
-                    | Some lineString -> if (isClosed way) then lineString.Coordinates |> Helpers.Geometry.geometryFactory.CreatePolygon |> Some else None
+                    | Some lineString -> if (isClosed way)
+                                         then lineString.Coordinates |> Helpers.Geometry.geometryFactory.CreatePolygon |> Some
+                                         else None
                     | None            -> None }
 
-        let getRelation (relation:XmlResponse.Relation) =
+        let isNodeMember (mem:XmlResponse.Member) = mem.Type = "node"
+
+        let getNodeMember (mem:XmlResponse.Member) (nodeDict:IDictionary<int64, Node>) =
+            match nodeDict.TryGetValue (Convert.ToInt64 mem.Ref) with
+                | true, value -> Some { Role = mem.Role; Member = Node value }
+                | _           -> None
+        
+        let isWayMember (mem:XmlResponse.Member) = mem.Type = "way"
+
+        let getWayMember (mem:XmlResponse.Member) (wayDict:IDictionary<int64, Way>) =
+            match wayDict.TryGetValue (Convert.ToInt64 mem.Ref) with
+                | true, value -> Some { Role = mem.Role; Member = Way value }
+                | _           -> None
+
+        let getRelation (relation:XmlResponse.Relation) nodesDict waysDict =
+            let locGetNode n = getNodeMember n nodesDict
+            let locGetWay w = getWayMember w waysDict
+            let nodes = relation.Members
+                      |> Seq.filter isNodeMember
+                      |> Seq.map locGetNode
+            let ways = relation.Members
+                      |> Seq.filter isWayMember
+                      |> Seq.map locGetWay
+
             { Info = getRelationInfo relation
-              Tags = getTags relation.Tags }
+              Tags = getTags relation.Tags
+              Members = Seq.append nodes ways
+                      |> Seq.filter(fun w -> w.IsSome)
+                      |> Seq.map(Option.get)
+                      |> Seq.sortBy(fun mem -> mem.Member.Id)
+              Relations = Seq.empty<Relation> }
 
         let fromXml str =
             let xml = XmlResponse.Parse str
             let nodes = xml.Nodes |> Seq.map getNode
             let nodesDict = nodes |> Seq.map(fun node -> node.Info.Id, node) |> dict
-            let ways = xml.Ways
-                     |> Seq.map(fun way -> getWay way nodesDict)
+            let ways = xml.Ways |> Seq.map(fun way -> getWay way nodesDict)
+            let waysDict = ways |> Seq.map(fun way -> way.Info.Id, way) |> dict
             { Notes = xml.Notes
               Nodes = nodes
                     |> Seq.filter isTagged
@@ -197,9 +242,9 @@ module private Xml =
                     |> Seq.filter isOpen
               Areas = ways
                     |> Seq.filter isArea
-                    |> Seq.map(createAreaFromWay)
+                    |> Seq.map createAreaFromWay
               Relations = xml.Relations
-                        |> Seq.map getRelation }
+                        |> Seq.map(fun m -> getRelation m nodesDict waysDict) }
 
 let AsyncGetCapabilities = Helpers.Async.mapAsync
                                Xml.Capabilities.fromXml

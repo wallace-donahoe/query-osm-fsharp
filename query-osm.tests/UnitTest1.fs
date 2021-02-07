@@ -24,4 +24,5 @@ let TestAsyncResponseExists () =
     async { let! res = Osm.AsyncQuery requestBody
             res.Nodes |> Seq.head |> ignore
             res.Ways |> Seq.head |> ignore
+            res.Relations |> Seq.head |> ignore
     } |> Async.RunSynchronously
