@@ -290,12 +290,10 @@ module private Xml =
 
             let xml = XmlResponse.Parse str
             let nodesMap = xml.Nodes
-                         |> Seq.map getNode
-                         |> Seq.map (tup Node)
+                         |> Seq.map (getNode >> tup Node)
                          |> Map
             let entityDict = xml.Ways
-                           |> Seq.map (getWay nodesMap)
-                           |> Seq.map (tup Way)
+                           |> Seq.map (getWay nodesMap >> tup Way)
                            |> Map
                            |> Map.union nodesMap
 
@@ -304,6 +302,7 @@ module private Xml =
                        |> Map.values
                        |> Seq.map getEntity
                        |> Seq.filter isTagged
+                       |> Seq.sortBy (fun entity -> entity.Id)
               Relations = xml.Relations
                         |> Seq.map (getRelation entityDict) }
 
