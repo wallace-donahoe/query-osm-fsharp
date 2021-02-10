@@ -113,7 +113,7 @@ type Entity =
                                | Way way   -> way.Tags
                                | Area area -> area.Tags
 
-type RelationMember = {
+type Member = {
     Role: option<string>
     Member: Entity
 } with
@@ -132,7 +132,7 @@ type RelationMember = {
 type Relation = {
     Info: Info
     Tags: IDictionary<string, string>
-    Members: seq<RelationMember>
+    Members: seq<Member>
     Relations: seq<Relation>
 } with
    member this.Id = (this :> IEntity).Id
@@ -204,9 +204,11 @@ module private Xml =
               Changeset = Convert .ToUInt32(relation.Changeset)
               Uid       = Convert .ToUInt32(relation.Uid) }
 
+        let getKvp (tag:XmlResponse.Tag) = (tag.K, tag.V)
+
         let getTags (tags:XmlResponse.Tag[]) =
             tags
-                |> Seq.map(fun tag -> tag.K, tag.V)
+                |> Seq.map getKvp
                 |> dict
 
         let getNode (node:XmlResponse.Node) =
@@ -214,7 +216,7 @@ module private Xml =
               Tags       = getTags node.Tags
               Node.Point = Helpers.Geometry.createPoint node.Lon node.Lat }
 
-        let isTagged (entity: 'a when 'a :> IEntity) = entity.Tags |> Seq.isEmpty |> not
+        let isTagged (entity:IEntity) = entity.Tags |> Seq.isEmpty |> not
 
         let getWay (nodes:IDictionary<int64, Entity>) (way:XmlResponse.Way) =
             { Info          = getWayInfo way
@@ -235,8 +237,8 @@ module private Xml =
 
         let isClosed = not << isOpen
 
-        let isArea (way:Way) =
-            match way.Tags.TryGetValue "area" with
+        let isArea (entity:IEntity) =
+            match entity.Tags.TryGetValue "area" with
                 | true, value -> value = "yes"
                 | _           -> false
 
@@ -257,7 +259,12 @@ module private Xml =
                 | true, value -> Some { Role = mem.Role; Member = value }
                 | _           -> None
         
-        let getRelation (entityDict:IDictionary<int64, Entity>) (relation:XmlResponse.Relation) =
+        let getNestedRelationXml (relationsDict:IDictionary<int64, XmlResponse.Relation>) (mem:XmlResponse.Member) =
+            match relationsDict.TryGetValue (Convert.ToInt64 mem.Ref) with
+                | true, value -> Some value
+                | _           -> None
+            
+        let rec getRelation (entityDict:IDictionary<int64, Entity>) (relationsDict:IDictionary<int64, XmlResponse.Relation>) (relation:XmlResponse.Relation) =
             let nodes = relation.Members
                       |> Seq.filter (isMemberType "node")
                       |> Seq.map (getRelationMember entityDict)
@@ -271,7 +278,11 @@ module private Xml =
                       |> Seq.filter Option.isSome
                       |> Seq.map Option.get
                       |> Seq.sortBy (fun mem -> mem.Id)
-              Relations = Seq.empty<Relation> }
+              Relations = relation.Members
+                        |> Seq.filter (isMemberType "relation")
+                        |> Seq.map (getNestedRelationXml relationsDict)
+                        |> Seq.choose (getRelation entityDict relationsDict |> Option.bind)
+                        |> Seq.sortBy (fun rel -> rel.Id) } |> Some
 
         let getAreaOrWay way =
             match isOpen way with
@@ -285,10 +296,9 @@ module private Xml =
                 | Way way -> getAreaOrWay way
                 | _       -> entity
 
-        let fromXml str =
-            let tup ctor (entity: 'a when 'a :> IEntity) = (entity.Id, ctor entity)
+        let tup ctor (entity: 'a when 'a :> IEntity) = (entity.Id, ctor entity)
 
-            let xml = XmlResponse.Parse str
+        let fromXml (xml:XmlResponse.Osm) =
             let nodesMap = xml.Nodes
                          |> Seq.map (getNode >> tup Node)
                          |> Map
@@ -296,6 +306,9 @@ module private Xml =
                            |> Seq.map (getWay nodesMap >> tup Way)
                            |> Map
                            |> Map.union nodesMap
+            let relationsDict = xml.Relations
+                              |> Seq.map (fun rel -> Convert.ToInt64 rel.Id, rel)
+                              |> dict
 
             { Notes = xml.Notes
               Entities = entityDict
@@ -304,7 +317,7 @@ module private Xml =
                        |> Seq.filter isTagged
                        |> Seq.sortBy (fun entity -> entity.Id)
               Relations = xml.Relations
-                        |> Seq.map (getRelation entityDict) }
+                        |> Seq.choose (getRelation entityDict relationsDict) }
 
 let AsyncGetCapabilities = Helpers.Async.mapAsync
                                Xml.Capabilities.fromXml
@@ -317,7 +330,7 @@ let AsyncKillQueries = Http.AsyncRequest killUrl
 let KillQueries = Async.RunSynchronously AsyncKillQueries 
 
 let AsyncQuery body = Helpers.Async.mapAsync
-                          Xml.Response.fromXml
+                          (Xml.Response.XmlResponse.Parse >> Xml.Response.fromXml)
                               <| Http.AsyncRequestString(apiUrl, body=HttpRequestBody.TextRequest body, httpMethod=HttpMethod.Post)
 
 let Query body = body
