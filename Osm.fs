@@ -37,58 +37,35 @@ type IEntity =
 type IGeographic =
     abstract member Geometry : option<Geometry> with get
 
+type Complete = Complete | Incomplete
+
 type Node =
     { Info: Info
-      Point: Point
+      Geometry: option<Geometry>
       Tags: IDictionary<string, string>
-    } with
-        member this.Geometry = (this :> IGeographic).Geometry
-        member this.Id = (this :> IEntity).Id
-        interface IEntity with
-            member this.Id
-                with get () = this.Info.Id
-            member this.Tags
-                with get () = this.Tags
-        interface IGeographic with
-            member this.Geometry
-                with get () = this.Point :> Geometry |> Some
+} with
+    member this.Id = (this :> IEntity).Id
+    interface IEntity with
+        member this.Id
+            with get () = this.Info.Id
+        member this.Tags
+            with get () = this.Tags
 
 type Way =
     { Info: Info
-      LineString: option<LineString>
+      Geometry : option<Geometry>
       Tags: IDictionary<string, string>
-    } with
-        member this.Geometry = (this :> IGeographic).Geometry
-        member this.Id = (this :> IEntity).Id
-        interface IEntity with
-            member this.Id
-                with get () = this.Info.Id
-            member this.Tags
-                with get () = this.Tags
-        interface IGeographic with
-            member this.Geometry
-                with get () = Option.map(fun lineString -> lineString :> Geometry) this.LineString
-
-type Area =
-    { Info: Info
-      Polygon: option<Polygon>
-      Tags: IDictionary<string, string>
-    } with
-        member this.Geometry = (this :> IGeographic).Geometry
-        member this.Id = (this :> IEntity).Id
-        interface IEntity with
-            member this.Id
-                with get () = this.Info.Id
-            member this.Tags
-                with get () = this.Tags
-        interface IGeographic with
-            member this.Geometry
-                with get () = Option.map(fun polygon -> polygon :> Geometry) this.Polygon
+} with
+    member this.Id = (this :> IEntity).Id
+    interface IEntity with
+        member this.Id
+            with get () = this.Info.Id
+        member this.Tags
+            with get () = this.Tags
 
 type Entity =
             | Node of Node
             | Way of Way
-            | Area of Area
             with
                 member this.Geometry = (this :> IGeographic).Geometry
                 member this.Id = (this :> IEntity).Id
@@ -98,20 +75,17 @@ type Entity =
                             match this with
                                 | Node node -> node.Geometry
                                 | Way  way  -> way.Geometry
-                                | Area area -> area.Geometry
                 interface IEntity with
                     member this.Id
                         with get() =
                             match this with
-                                | Node node -> node.Id
-                                | Way way   -> way.Id
-                                | Area area -> area.Id
+                                | Node node -> node.Info.Id
+                                | Way way   -> way.Info.Id
                     member this.Tags
                         with get() =
                             match this with
                                | Node node -> node.Tags
                                | Way way   -> way.Tags
-                               | Area area -> area.Tags
 
 type Member = {
     Role: option<string>
@@ -171,6 +145,8 @@ module private Helpers =
                 |> Seq.toArray
                 |> geometryFactory.CreateLineString
 
+        let someGeometry (geometry:'a when 'a :> Geometry) = geometry :> Geometry |> Some
+
 module private Xml =
     module Capabilities =
         type XmlCapabilities = XmlProvider< Schema = const(__SOURCE_DIRECTORY__ + "/Schemas/XML/capabilities.xsd") >
@@ -212,45 +188,44 @@ module private Xml =
                 |> dict
 
         let getNode (node:XmlResponse.Node) =
-            { Info       = getNodeInfo node
-              Tags       = getTags node.Tags
-              Node.Point = Helpers.Geometry.createPoint node.Lon node.Lat }
+            { Info          = getNodeInfo node
+              Tags          = getTags node.Tags
+              Node.Geometry = Helpers.Geometry.createPoint node.Lon node.Lat :> Geometry |> Some }
 
         let isTagged (entity:IEntity) = entity.Tags |> Seq.isEmpty |> not
+
+        let tryGetGeometry (nodes:IDictionary<int64, Entity>) (nd:XmlResponse.Nd) =
+            match nd.Ref |> Convert.ToInt64 |> nodes.TryGetValue with
+                | true, Node node -> node.Geometry |> Option.get :?> Point |> Some
+                | _               -> None
+
+        let createGeometryCollection (points:list<option<Point>>) = Helpers.Geometry.createPoint 0m 0m :> Geometry |> Some
+        
+        let getGeometryCollectionOrLineString (points:list<option<Point>>) = 
+            match List.contains None points with
+                | true  -> (Incomplete, createGeometryCollection points)
+                | false -> (Complete, points
+                                        |> Seq.map Option.get
+                                        |> Helpers.Geometry.createLineString
+                                        |> Helpers.Geometry.someGeometry)
+
+        let getWayGeometry (nodes:IDictionary<int64, Entity>) (way:XmlResponse.Way) =
+            let points = way.Nds
+                       |> Seq.map(tryGetGeometry nodes)
+                       |> Seq.toList
+            
+            match getGeometryCollectionOrLineString points with
+                | (Complete, geometry) -> (Complete, match (geometry.Value :?> LineString).IsClosed with
+                                                        | false -> geometry
+                                                        | true  -> geometry.Value.Coordinates
+                                                                    |> Helpers.Geometry.geometryFactory.CreatePolygon 
+                                                                    |> Helpers.Geometry.someGeometry)
+                | res -> res
 
         let getWay (nodes:IDictionary<int64, Entity>) (way:XmlResponse.Way) =
             { Info          = getWayInfo way
               Tags          = getTags way.Tags
-              Way.LineString  =
-                try
-                    way.Nds
-                        |> Seq.map(fun nd -> Option.get nodes.[Convert.ToInt64 nd.Ref].Geometry :?> Point)
-                        |> Helpers.Geometry.createLineString
-                        |> Some
-                with
-                    | :? KeyNotFoundException -> None }
-
-        let isOpen (way:Way) =
-            match way.LineString with
-                | Some lineString -> not lineString.IsClosed
-                | None            -> true
-
-        let isClosed = not << isOpen
-
-        let isArea (entity:IEntity) =
-            match entity.Tags.TryGetValue "area" with
-                | true, value -> value = "yes"
-                | _           -> false
-
-        let createAreaFromWay (way:Way) =
-            { Info          = way.Info;
-              Tags          = new Dictionary<string, string>(way.Tags);
-              Area.Polygon =
-                match way.LineString with
-                    | Some lineString -> if (isClosed way)
-                                         then lineString.Coordinates |> Helpers.Geometry.geometryFactory.CreatePolygon |> Some
-                                         else None
-                    | None            -> None }
+              Way.Geometry  = getWayGeometry nodes way |> snd}
 
         let isMemberType value (mem:XmlResponse.Member) = mem.Type = value
 
@@ -275,26 +250,13 @@ module private Xml =
             { Info = getRelationInfo relation
               Tags = getTags relation.Tags
               Members = Seq.append nodes ways
-                      |> Seq.filter Option.isSome
-                      |> Seq.map Option.get
+                      |> Seq.choose id
                       |> Seq.sortBy (fun mem -> mem.Id)
               Relations = relation.Members
                         |> Seq.filter (isMemberType "relation")
                         |> Seq.map (getNestedRelationXml relationsDict)
                         |> Seq.choose (getRelation entityDict relationsDict |> Option.bind)
                         |> Seq.sortBy (fun rel -> rel.Id) } |> Some
-
-        let getAreaOrWay way =
-            match isOpen way with
-                | true -> Way way
-                | _    -> match isArea way with
-                            | true -> way |> createAreaFromWay |> Area
-                            | _    -> Way way
-
-        let getEntity entity =
-            match entity with
-                | Way way -> getAreaOrWay way
-                | _       -> entity
 
         let tup ctor (entity: 'a when 'a :> IEntity) = (entity.Id, ctor entity)
 
@@ -313,7 +275,6 @@ module private Xml =
             { Notes = xml.Notes
               Entities = entityDict
                        |> Map.values
-                       |> Seq.map getEntity
                        |> Seq.filter isTagged
                        |> Seq.sortBy (fun entity -> entity.Id)
               Relations = xml.Relations
