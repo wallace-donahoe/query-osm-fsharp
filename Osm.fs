@@ -19,8 +19,8 @@ type Capabilities = {
     MaxVersion: decimal
 }
 
-type Info = {
-    Id: int64
+type info = {
+    id: int64
     Uid: uint32
     Version: byte
     Changeset: uint32
@@ -30,104 +30,121 @@ type Info = {
 
 [<Interface>]
 type IEntity =
-    abstract member Id: int64 with get
-    abstract member Tags: IDictionary<string, string> with get
+    abstract member id: int64 with get
+    abstract member tags: IDictionary<string, string> with get
 
 [<Interface>]
 type IGeographic =
-    abstract member Geometry : option<Geometry> with get
+    abstract member geometry : option<Geometry> with get
 
 type Complete = Complete | Incomplete
 
+[<StructuredFormatDisplay("Node(id={id} {tags})")>]
 type Node =
-    { Info: Info
-      Geometry: option<Geometry>
-      Tags: IDictionary<string, string>
+    { info: info
+      geometry: option<Geometry>
+      tags: IDictionary<string, string>
 } with
-    member this.Id = (this :> IEntity).Id
+    member this.id = (this :> IEntity).id
     interface IEntity with
-        member this.Id
-            with get () = this.Info.Id
-        member this.Tags
-            with get () = this.Tags
+        member this.id
+            with get () = this.info.id
+        member this.tags
+            with get () = this.tags
 
+[<StructuredFormatDisplay("Way(id={id} {tags})")>]
 type Way =
-    { Info: Info
-      Geometry : option<Geometry>
-      Tags: IDictionary<string, string>
+    { info: info
+      geometry : option<Geometry>
+      tags: IDictionary<string, string>
+      isComplete: bool
 } with
-    member this.Id = (this :> IEntity).Id
+    member this.id = (this :> IEntity).id
     interface IEntity with
-        member this.Id
-            with get () = this.Info.Id
-        member this.Tags
-            with get () = this.Tags
+        member this.id
+            with get () = this.info.id
+        member this.tags
+            with get () = this.tags
 
 type Entity =
             | Node of Node
             | Way of Way
             with
-                member this.Geometry = (this :> IGeographic).Geometry
-                member this.Id = (this :> IEntity).Id
+                member this.geometry = (this :> IGeographic).geometry
+                member this.id = (this :> IEntity).id
+                member this.tags = (this :> IEntity).tags
                 interface IGeographic with
-                    member this.Geometry
+                    member this.geometry
                         with get () =
                             match this with
-                                | Node node -> node.Geometry
-                                | Way  way  -> way.Geometry
+                                | Node node -> node.geometry
+                                | Way  way  -> way.geometry
                 interface IEntity with
-                    member this.Id
+                    member this.id
                         with get() =
                             match this with
-                                | Node node -> node.Info.Id
-                                | Way way   -> way.Info.Id
-                    member this.Tags
+                                | Node node -> node.info.id
+                                | Way way   -> way.info.id
+                    member this.tags
                         with get() =
                             match this with
-                               | Node node -> node.Tags
-                               | Way way   -> way.Tags
+                               | Node node -> node.tags
+                               | Way way   -> way.tags
 
+[<StructuredFormatDisplay("{entity}")>]
 type Member = {
-    Role: option<string>
-    Member: Entity
+    role: option<string>
+    entity: Entity
 } with
-    member this.Geometry = (this :> IGeographic).Geometry
-    member this.Id = (this :> IEntity).Id
-    member this.Tags = (this :> IEntity).Tags
+    member this.Geometry = (this :> IGeographic).geometry
+    member this.id = (this :> IEntity).id
+    member this.tags = (this :> IEntity).tags
     interface IEntity with
-        member this.Id
-            with get () = this.Member.Id
-        member this.Tags
-            with get () = (this.Member :> IEntity).Tags
+        member this.id
+            with get () = this.entity.id
+        member this.tags
+            with get () = (this.entity :> IEntity).tags
     interface IGeographic with
-        member this.Geometry
-            with get() = this.Member.Geometry
+        member this.geometry
+            with get() = this.entity.geometry
 
+[<StructuredFormatDisplay("Relation(id={info.id} {tags})")>]
 type Relation = {
-    Info: Info
-    Tags: IDictionary<string, string>
-    Members: seq<Member>
-    Relations: seq<Relation>
+    info: info
+    tags: IDictionary<string, string>
+    members: seq<Member>
+    relations: seq<Relation>
 } with
-   member this.Id = (this :> IEntity).Id
+   member this.id = (this :> IEntity).id
    interface IEntity with
-       member this.Id
-           with get () = this.Info.Id
-       member this.Tags
-           with get () = this.Tags
+       member this.id
+           with get () = this.info.id
+       member this.tags
+           with get () = this.tags
 
 type Response = {
-    Entities: seq<Entity>
-    Relations: seq<Relation>
-    Notes: string[]
+    entities: seq<Entity>
+    relations: seq<Relation>
+    notes: string[]
 }
 
-module private Helpers =
+module Helpers =
     module Async =
         let mapAsync func calcAsync = async { 
             let! result = calcAsync
             return func result
         }
+
+    let chunkList (pred:('a -> bool)) (items:list<'a>) =
+        let rec loop xs =
+            let skipped = List.skipWhile (not << pred) xs
+            [
+                yield List.takeWhile pred skipped
+                match skipped with
+                    | [] -> ()
+                    | _ -> yield! loop (List.skipWhile pred skipped)
+            ]
+        loop items
 
     module Geometry =
 
@@ -158,22 +175,22 @@ module private Xml =
     module Response =
         type XmlResponse = XmlProvider< Schema = const(__SOURCE_DIRECTORY__ + "/Schemas/XML/response.xsd") >
 
-        let getNodeInfo (node:XmlResponse.Node) =
-            { Id        = Convert.ToInt64(node.Id)
+        let getNodeinfo (node:XmlResponse.Node) =
+            { id        = Convert.ToInt64(node.Id)
               Timestamp = node   .Timestamp
               User      = node   .User
               Version   = Convert.ToByte(node.Version)
               Changeset = Convert.ToUInt32(node.Changeset)
               Uid       = Convert.ToUInt32(node.Uid) }
-        let getWayInfo (way:XmlResponse.Way) =
-            { Id        = Convert.ToInt64(way.Id)
+        let getWayinfo (way:XmlResponse.Way) =
+            { id        = Convert.ToInt64(way.Id)
               Timestamp = way    .Timestamp
               User      = way    .User
               Version   = Convert.ToByte(way.Version)
               Changeset = Convert.ToUInt32(way.Changeset)
               Uid       = Convert.ToUInt32(way.Uid) }
-        let getRelationInfo (relation:XmlResponse.Relation) =
-            { Id        = Convert .ToInt64(relation.Id)
+        let getRelationinfo (relation:XmlResponse.Relation) =
+            { id        = Convert .ToInt64(relation.Id)
               Timestamp = relation.Timestamp
               User      = relation.User
               Version   = Convert .ToByte(relation.Version)
@@ -188,50 +205,64 @@ module private Xml =
                 |> dict
 
         let getNode (node:XmlResponse.Node) =
-            { Info          = getNodeInfo node
-              Tags          = getTags node.Tags
-              Node.Geometry = Helpers.Geometry.createPoint node.Lon node.Lat :> Geometry |> Some }
-
-        let isTagged (entity:IEntity) = entity.Tags |> Seq.isEmpty |> not
+            { info          = getNodeinfo node
+              tags          = getTags node.Tags
+              Node.geometry = Helpers.Geometry.createPoint node.Lon node.Lat :> Geometry |> Some }
 
         let tryGetGeometry (nodes:IDictionary<int64, Entity>) (nd:XmlResponse.Nd) =
             match nd.Ref |> Convert.ToInt64 |> nodes.TryGetValue with
-                | true, Node node -> node.Geometry |> Option.get :?> Point |> Some
+                | true, Node node -> node.geometry |> Option.get :?> Point |> Some
                 | _               -> None
 
-        let createGeometryCollection (points:list<option<Point>>) = Helpers.Geometry.createPoint 0m 0m :> Geometry |> Some
+        let createGeometryCollection (points:list<option<Point>>) =
+            points
+                |> Helpers.chunkList Option.isSome
+                |> Seq.map (fun chunk -> match chunk with
+                                                | [] -> None
+                                                | point::[] -> point.Value :> Geometry |> Some
+                                                | xs -> Helpers.Geometry.createLineString (List.map Option.get xs) |> Helpers.Geometry.someGeometry)
+                |> Seq.filter (Option.isSome)
+                |> Seq.map Option.get
+                |> Seq.toArray
+                |> GeometryCollection
+                |> (fun collection -> if (collection.Count = 1) then collection.Geometries.[0] else collection :> Geometry)
+                |> Helpers.Geometry.someGeometry
         
         let getGeometryCollectionOrLineString (points:list<option<Point>>) = 
-            match List.contains None points with
-                | true  -> (Incomplete, createGeometryCollection points)
-                | false -> (Complete, points
-                                        |> Seq.map Option.get
-                                        |> Helpers.Geometry.createLineString
-                                        |> Helpers.Geometry.someGeometry)
+            if (List.contains None points) then
+                (Incomplete, createGeometryCollection points)
+            else
+                (Complete, points
+                             |> Seq.map Option.get
+                             |> Helpers.Geometry.createLineString
+                             |> Helpers.Geometry.someGeometry)
 
         let getWayGeometry (nodes:IDictionary<int64, Entity>) (way:XmlResponse.Way) =
             let points = way.Nds
-                       |> Seq.map(tryGetGeometry nodes)
+                       |> Seq.map (tryGetGeometry nodes)
                        |> Seq.toList
             
             match getGeometryCollectionOrLineString points with
-                | (Complete, geometry) -> (Complete, match (geometry.Value :?> LineString).IsClosed with
-                                                        | false -> geometry
-                                                        | true  -> geometry.Value.Coordinates
-                                                                    |> Helpers.Geometry.geometryFactory.CreatePolygon 
-                                                                    |> Helpers.Geometry.someGeometry)
+                | (Complete, geometry) -> (Complete, if (not (geometry.Value :?> LineString).IsClosed) then
+                                                        geometry
+                                                     else
+                                                        geometry.Value.Coordinates
+                                                            |> Helpers.Geometry.geometryFactory.CreatePolygon 
+                                                            |> Helpers.Geometry.someGeometry)
                 | res -> res
 
         let getWay (nodes:IDictionary<int64, Entity>) (way:XmlResponse.Way) =
-            { Info          = getWayInfo way
-              Tags          = getTags way.Tags
-              Way.Geometry  = getWayGeometry nodes way |> snd}
+            let completeness, geometry = getWayGeometry nodes way
+            { info       = getWayinfo way
+              tags       = getTags way.Tags
+              geometry   = geometry
+              isComplete = completeness = Complete }
 
         let isMemberType value (mem:XmlResponse.Member) = mem.Type = value
 
         let getRelationMember (entityDict:IDictionary<int64, Entity>) (mem:XmlResponse.Member) =
             match entityDict.TryGetValue (Convert.ToInt64 mem.Ref) with
-                | true, value -> Some { Role = mem.Role; Member = value }
+                | true, value -> Some { role = mem.Role; entity = value }
                 | _           -> None
         
         let getNestedRelationXml (relationsDict:IDictionary<int64, XmlResponse.Relation>) (mem:XmlResponse.Member) =
@@ -247,18 +278,18 @@ module private Xml =
                      |> Seq.filter (isMemberType "way")
                      |> Seq.map (getRelationMember entityDict)
 
-            { Info = getRelationInfo relation
-              Tags = getTags relation.Tags
-              Members = Seq.append nodes ways
+            { info = getRelationinfo relation
+              tags = getTags relation.Tags
+              members = Seq.append nodes ways
                       |> Seq.choose id
-                      |> Seq.sortBy (fun mem -> mem.Id)
-              Relations = relation.Members
+                      |> Seq.sortBy (fun mem -> mem.id)
+              relations = relation.Members
                         |> Seq.filter (isMemberType "relation")
                         |> Seq.map (getNestedRelationXml relationsDict)
                         |> Seq.choose (getRelation entityDict relationsDict |> Option.bind)
-                        |> Seq.sortBy (fun rel -> rel.Id) } |> Some
+                        |> Seq.sortBy (fun rel -> rel.id) } |> Some
 
-        let tup ctor (entity: 'a when 'a :> IEntity) = (entity.Id, ctor entity)
+        let tup ctor (entity: 'a when 'a :> IEntity) = (entity.id, ctor entity)
 
         let fromXml (xml:XmlResponse.Osm) =
             let nodesMap = xml.Nodes
@@ -272,28 +303,40 @@ module private Xml =
                               |> Seq.map (fun rel -> Convert.ToInt64 rel.Id, rel)
                               |> dict
 
-            { Notes = xml.Notes
-              Entities = entityDict
+            { notes = xml.Notes
+              entities = entityDict
                        |> Map.values
-                       |> Seq.filter isTagged
-                       |> Seq.sortBy (fun entity -> entity.Id)
-              Relations = xml.Relations
+                       |> Seq.sortBy (fun entity -> entity.id)
+              relations = xml.Relations
                         |> Seq.choose (getRelation entityDict relationsDict) }
 
-let AsyncGetCapabilities = Helpers.Async.mapAsync
-                               Xml.Capabilities.fromXml
+let asyncGetCapabilities () = Helpers.Async.mapAsync
+                                 Xml.Capabilities.fromXml
                                    <| Http.AsyncRequestString capabilitiesUrl
 
-let GetCapabilities = Async.RunSynchronously AsyncGetCapabilities
+let getCapabilities () = asyncGetCapabilities() |> Async.RunSynchronously
 
-let AsyncKillQueries = Http.AsyncRequest killUrl
+let asyncKillQueries () = Http.AsyncRequest killUrl
 
-let KillQueries = Async.RunSynchronously AsyncKillQueries 
+let killQueries () = asyncKillQueries() |> Async.RunSynchronously
 
-let AsyncQuery body = Helpers.Async.mapAsync
+let asyncQuery body = Helpers.Async.mapAsync
                           (Xml.Response.XmlResponse.Parse >> Xml.Response.fromXml)
                               <| Http.AsyncRequestString(apiUrl, body=HttpRequestBody.TextRequest body, httpMethod=HttpMethod.Post)
 
-let Query body = body
-                     |> AsyncQuery
+let query body = body
+                     |> asyncQuery
                      |> Async.RunSynchronously
+
+let readFile path = path
+                        |> IO.File.ReadAllText
+                        |> (Xml.Response.XmlResponse.Parse >> Xml.Response.fromXml)
+
+let isWay entity =
+    match entity with
+        | Way _ -> true
+        | _ -> false
+let isNode = not << isWay
+
+let hasTagValue tagVal (entity:Entity) = entity.tags.Values.Contains tagVal
+let hasTag (key, value) (entity:Entity) = entity.tags.Contains(KeyValuePair(key, value))  

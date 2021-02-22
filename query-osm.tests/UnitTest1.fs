@@ -14,14 +14,21 @@ let Setup () =
 
 [<Test>]
 let TestAsyncCapabilities () =
-    async { let! capabilities = Osm.AsyncGetCapabilities
+    async { let! capabilities = Osm.asyncGetCapabilities()
             Assert.That(capabilities.MinVersion, Is.EqualTo(0.6))
             Assert.That(capabilities.MaxVersion, Is.EqualTo(0.6))
     } |> Async.RunSynchronously
 
 [<Test>]
 let TestAsyncResponseExists () =
-    async { let! res = Osm.AsyncQuery requestBody
-            res.Entities |> Seq.head |> ignore
-            res.Relations |> Seq.head |> ignore
+    async { let! res = Osm.asyncQuery requestBody
+            res.entities |> Seq.head |> ignore
+            res.relations |> Seq.head |> ignore
     } |> Async.RunSynchronously
+
+[<Test>]
+let TestFileRead () =
+    let res = Osm.readFile "C:\\Users\\wallace\\Documents\\bluemont_osm.xml"
+    let ways = res.entities |> Seq.filter Osm.isWay
+    let home = res.entities |> Seq.filter(Osm.hasTagValue("1192"))
+    ways |> ignore
