@@ -214,23 +214,29 @@ module private Xml =
                 | true, Node node -> node.geometry |> Option.get :?> Point |> Some
                 | _               -> None
 
-        let createGeometryCollection (points:list<option<Point>>) =
+        let getChunkGeometry (chunk:list<option<Point>>) =
+            match chunk with
+                | [] -> None
+                | point::[] -> Helpers.Geometry.someGeometry point.Value
+                | xs -> Helpers.Geometry.createLineString (List.map Option.get xs) |> Helpers.Geometry.someGeometry
+
+        let getSingleGeometryOrCollection geometries =
+            match geometries with
+                | [|x|] -> Helpers.Geometry.someGeometry x
+                |   _   -> geometries |> GeometryCollection |> Helpers.Geometry.someGeometry
+
+        let getIncompleteWayGeometry (points:list<option<Point>>) =
             points
                 |> Helpers.chunkList Option.isSome
-                |> Seq.map (fun chunk -> match chunk with
-                                                | [] -> None
-                                                | point::[] -> point.Value :> Geometry |> Some
-                                                | xs -> Helpers.Geometry.createLineString (List.map Option.get xs) |> Helpers.Geometry.someGeometry)
-                |> Seq.filter (Option.isSome)
+                |> Seq.map getChunkGeometry
+                |> Seq.filter Option.isSome
                 |> Seq.map Option.get
                 |> Seq.toArray
-                |> GeometryCollection
-                |> (fun collection -> if (collection.Count = 1) then collection.Geometries.[0] else collection :> Geometry)
-                |> Helpers.Geometry.someGeometry
-        
+                |> getSingleGeometryOrCollection
+
         let getGeometryCollectionOrLineString (points:list<option<Point>>) = 
             if (List.contains None points) then
-                (Incomplete, createGeometryCollection points)
+                (Incomplete, getIncompleteWayGeometry points)
             else
                 (Complete, points
                              |> Seq.map Option.get
